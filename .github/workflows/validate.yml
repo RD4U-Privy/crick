@@ -1,0 +1,47 @@
+name: Validate Crick
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate native projects
+        run: flutter create --platforms=android,ios --org com.dysonc --project-name cricket .
+      - name: Normalize strict Dart expressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/main.dart')
+          s = p.read_text()
+          s = s.replace(
+              'final int reward = 50 + (streak - 1).clamp(0, 6) * 10;',
+              'final int reward = 50 + (streak - 1).clamp(0, 6).toInt() * 10;',
+          )
+          s = s.replace(
+              'double get progress => (elapsed / duration).clamp(0, 1);',
+              'double get progress => (elapsed / duration).clamp(0.0, 1.0).toDouble();',
+          )
+          p.write_text(s)
+          PY
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crick-android-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
